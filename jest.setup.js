@@ -58,3 +58,16 @@ jest.mock('react-native-safe-area-context', () => {
     useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
   };
 });
+
+jest.mock('react-native-vector-icons/Ionicons', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+
+  const MockIonicons = props =>
+    React.createElement(Text, props, props.name ?? '');
+
+  return {
+    __esModule: true,
+    default: MockIonicons,
+  };
+});

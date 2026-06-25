@@ -15,6 +15,14 @@ jest.mock('../assets/table-background.png', () => 1);
 import AcesUpTable from '../components/AcesUpTable';
 import { getGameStats } from '../utils/gameStats';
 
+type Suit = 'C' | 'D' | 'H' | 'S';
+
+const createCard = (suit: Suit, rank: number) => ({
+  suit,
+  rank,
+  faceUp: true as const,
+});
+
 // Integration tests covering gameplay flows, modal behavior, and persistence side effects.
 describe('AcesUpTable', () => {
   beforeEach(async () => {
@@ -68,10 +76,10 @@ describe('AcesUpTable', () => {
 
   it('applies face-up tint to all face-up top stacks', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 5, faceUp: true }],
-      [{ suit: 'D', rank: 6, faceUp: true }],
-      [{ suit: 'H', rank: 7, faceUp: true }],
-      [{ suit: 'S', rank: 8, faceUp: true }],
+      [createCard('C', 5)],
+      [createCard('D', 6)],
+      [createCard('H', 7)],
+      [createCard('S', 8)],
     ];
 
     const { getByTestId } = await render(
@@ -147,8 +155,8 @@ describe('AcesUpTable', () => {
 
   it('applies settings changes from the settings modal', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 5, faceUp: true }],
-      [{ suit: 'C', rank: 8, faceUp: true }],
+      [createCard('C', 5)],
+      [createCard('C', 8)],
       [],
       [],
     ];
@@ -191,10 +199,10 @@ describe('AcesUpTable', () => {
 
   it('clears statistics from the settings modal', async () => {
     const losingTopStacks = [
-      [{ suit: 'C' as const, rank: 2, faceUp: true }],
-      [{ suit: 'D' as const, rank: 3, faceUp: true }],
-      [{ suit: 'H' as const, rank: 4, faceUp: true }],
-      [{ suit: 'S' as const, rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByTestId, queryByTestId } = await render(
@@ -278,8 +286,8 @@ describe('AcesUpTable', () => {
 
   it('moves a playable top card to discard when a higher matching suit exists', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 5, faceUp: true }],
-      [{ suit: 'C', rank: 8, faceUp: true }],
+      [createCard('C', 5)],
+      [createCard('C', 8)],
       [],
       [],
     ];
@@ -301,12 +309,9 @@ describe('AcesUpTable', () => {
 
   it('relocates a playable top card to the leftmost empty stack when no higher matching suit exists', async () => {
     const initialTopStacks = [
-      [
-        { suit: 'D', rank: 6, faceUp: true },
-        { suit: 'S', rank: 2, faceUp: true },
-      ],
+      [createCard('D', 6), createCard('S', 2)],
       [],
-      [{ suit: 'H', rank: 2, faceUp: true }],
+      [createCard('H', 2)],
       [],
     ];
 
@@ -326,9 +331,9 @@ describe('AcesUpTable', () => {
 
   it('does not mark a lone card as playable when another empty stack exists', async () => {
     const initialTopStacks = [
-      [{ suit: 'S', rank: 9, faceUp: true }],
+      [createCard('S', 9)],
       [],
-      [{ suit: 'H', rank: 3, faceUp: true }],
+      [createCard('H', 3)],
       [],
     ];
 
@@ -342,8 +347,8 @@ describe('AcesUpTable', () => {
 
   it('undoes the last play action', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 5, faceUp: true }],
-      [{ suit: 'C', rank: 8, faceUp: true }],
+      [createCard('C', 5)],
+      [createCard('C', 8)],
       [],
       [],
     ];
@@ -370,10 +375,10 @@ describe('AcesUpTable', () => {
 
   it('shows a losing game-over popup when deck is empty and no moves remain', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 2, faceUp: true }],
-      [{ suit: 'D', rank: 3, faceUp: true }],
-      [{ suit: 'H', rank: 4, faceUp: true }],
-      [{ suit: 'S', rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByText } = await render(
@@ -396,10 +401,10 @@ describe('AcesUpTable', () => {
 
   it('always shows stats in the game-over popup', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 2, faceUp: true }],
-      [{ suit: 'D', rank: 3, faceUp: true }],
-      [{ suit: 'H', rank: 4, faceUp: true }],
-      [{ suit: 'S', rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByTestId, getByText } = await render(
@@ -421,10 +426,10 @@ describe('AcesUpTable', () => {
 
   it('shows a winning game-over popup for one ace on each top stack', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 1, faceUp: true }],
-      [{ suit: 'D', rank: 1, faceUp: true }],
-      [{ suit: 'H', rank: 1, faceUp: true }],
-      [{ suit: 'S', rank: 1, faceUp: true }],
+      [createCard('C', 1)],
+      [createCard('D', 1)],
+      [createCard('H', 1)],
+      [createCard('S', 1)],
     ];
 
     const { getByText } = await render(
@@ -447,10 +452,10 @@ describe('AcesUpTable', () => {
 
   it('dismiss closes the game-over popup', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 2, faceUp: true }],
-      [{ suit: 'D', rank: 3, faceUp: true }],
-      [{ suit: 'H', rank: 4, faceUp: true }],
-      [{ suit: 'S', rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByText, getByTestId, queryByText } = await render(
@@ -476,10 +481,10 @@ describe('AcesUpTable', () => {
 
   it('deal button starts a new game after dismissing game over', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 2, faceUp: true }],
-      [{ suit: 'D', rank: 3, faceUp: true }],
-      [{ suit: 'H', rank: 4, faceUp: true }],
-      [{ suit: 'S', rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByText, getByTestId, queryByText, queryByTestId } = await render(
@@ -510,10 +515,10 @@ describe('AcesUpTable', () => {
 
   it('deal again resets to a fresh game from the game-over popup', async () => {
     const initialTopStacks = [
-      [{ suit: 'C', rank: 2, faceUp: true }],
-      [{ suit: 'D', rank: 3, faceUp: true }],
-      [{ suit: 'H', rank: 4, faceUp: true }],
-      [{ suit: 'S', rank: 5, faceUp: true }],
+      [createCard('C', 2)],
+      [createCard('D', 3)],
+      [createCard('H', 4)],
+      [createCard('S', 5)],
     ];
 
     const { getByText, getByTestId, queryByText, queryByTestId } = await render(
