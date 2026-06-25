@@ -39,6 +39,7 @@ local.properties
 .kotlin/
 **/assets/index.android.bundle
 **/res/**/assets*.png
+**/res/raw/keep.xml
 
 # node.js
 #
