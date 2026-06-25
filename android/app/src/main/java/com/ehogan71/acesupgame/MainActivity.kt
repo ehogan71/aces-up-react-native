@@ -1,4 +1,4 @@
-package com.acesupgame
+package com.ehogan71.acesupgame
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

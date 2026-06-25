@@ -1,4 +1,4 @@
-package com.acesupgame
+package com.ehogan71.acesupgame
 
 import android.app.Application
 import com.facebook.react.PackageList
