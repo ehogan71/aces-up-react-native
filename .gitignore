@@ -22,6 +22,7 @@ DerivedData
 *.xcuserstate
 **/.xcode.env.local
 **/.xcode.env
+**/Podfile.lock
 
 # Android/IntelliJ
 #
@@ -33,14 +34,19 @@ local.properties
 *.hprof
 .cxx/
 *.keystore
+*.jks
 !debug.keystore
 .kotlin/
+**/assets/index.android.bundle
+**/res/**/assets*.png
 
 # node.js
 #
 node_modules/
 npm-debug.log
 yarn-error.log
+package-lock.json
+dist/
 
 # fastlane
 #
