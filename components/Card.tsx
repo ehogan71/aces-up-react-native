@@ -11,6 +11,7 @@ type Props = {
   backStyle?: BackStyle;
   testID?: string;
   showPlayable?: boolean;
+  playableAction?: string;
 };
 
 const faceUpImages = {
@@ -90,6 +91,7 @@ const Card: React.FC<Props> = ({
   backStyle = 'Red',
   testID,
   showPlayable = false,
+  playableAction,
 }) => {
   const getImageSource = () => {
     if (faceUp) {
@@ -118,7 +120,12 @@ const Card: React.FC<Props> = ({
       {showPlayable && (
         <View
           testID={testID ? `${testID}-playable-dot` : undefined}
-          style={styles.highlightDot}
+          style={[
+            styles.highlightDot,
+            playableAction === 'discard'
+              ? { backgroundColor: '#4A90E2' }
+              : { backgroundColor: '#0f9e3a' },
+          ]}
         />
       )}
     </View>
@@ -144,7 +151,6 @@ const styles = StyleSheet.create({
     width: 15,
     height: 15,
     borderRadius: 7,
-    backgroundColor: '#4A90E2',
     left: 5,
     bottom: 2,
     borderWidth: 2,

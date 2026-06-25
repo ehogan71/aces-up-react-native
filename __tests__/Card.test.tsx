@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render } from '@testing-library/react-native';
 import Card from '../components/Card';
 
@@ -49,23 +50,69 @@ describe('Card', () => {
     expect(typeof cardImage.props.source).toBe('number');
   });
 
-  it('shows a small blue playable dot when showPlayable is enabled', async () => {
+  it('shows a green playable dot when showPlayable is enabled', async () => {
     const { getByTestId } = await render(
       <Card suit="H" rank={12} faceUp showPlayable testID="playable-card" />,
     );
 
     const dot = getByTestId('playable-card-playable-dot');
     expect(dot).toBeTruthy();
-    expect(dot.props.style).toEqual(
-      expect.objectContaining({
-        width: 15,
-        height: 15,
-        borderRadius: 7,
-        backgroundColor: '#4A90E2',
-        borderWidth: 2,
-        borderColor: '#fff',
-      }),
+    expect(StyleSheet.flatten(dot.props.style)).toMatchObject({
+      width: 15,
+      height: 15,
+      borderRadius: 7,
+      borderWidth: 2,
+      borderColor: '#fff',
+      backgroundColor: '#0f9e3a',
+    });
+  });
+
+  it('shows a blue playable dot when the action is discard', async () => {
+    const { getByTestId } = await render(
+      <Card
+        suit="H"
+        rank={12}
+        faceUp
+        showPlayable
+        playableAction="discard"
+        testID="discard-card"
+      />,
     );
+
+    const dot = getByTestId('discard-card-playable-dot');
+    expect(dot).toBeTruthy();
+    expect(StyleSheet.flatten(dot.props.style)).toMatchObject({
+      width: 15,
+      height: 15,
+      borderRadius: 7,
+      borderWidth: 2,
+      borderColor: '#fff',
+      backgroundColor: '#4A90E2',
+    });
+  });
+
+  it('shows a green playable dot when the action is relocate', async () => {
+    const { getByTestId } = await render(
+      <Card
+        suit="H"
+        rank={12}
+        faceUp
+        showPlayable
+        playableAction="relocate"
+        testID="relocate-card"
+      />,
+    );
+
+    const dot = getByTestId('relocate-card-playable-dot');
+    expect(dot).toBeTruthy();
+    expect(StyleSheet.flatten(dot.props.style)).toMatchObject({
+      width: 15,
+      height: 15,
+      borderRadius: 7,
+      borderWidth: 2,
+      borderColor: '#fff',
+      backgroundColor: '#0f9e3a',
+    });
   });
 
   it('renders different suits correctly when faceUp', async () => {

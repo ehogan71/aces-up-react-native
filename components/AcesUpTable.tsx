@@ -440,6 +440,7 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
               feathered
               showCount={false}
               playableTopCard={isTopCardPlayable(i)}
+              playableCardAction={getTopCardPlayableAction(i) ?? undefined}
               showPlayableIndicator={appSettings.showPlayableIndicators}
               onPress={
                 isTopCardPlayable(i) ? () => handleTopCardPress(i) : undefined

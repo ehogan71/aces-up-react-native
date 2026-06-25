@@ -43,6 +43,7 @@ type Props = {
   stack?: StackCard[];
   feathered?: boolean;
   playableTopCard?: boolean;
+  playableCardAction?: string;
   showPlayableIndicator?: boolean;
   showCount?: boolean;
   onPress?: () => void;
@@ -63,6 +64,7 @@ const CardStack = forwardRef<CardStackHandle, Props>(
       stack: controlledStack,
       feathered = false,
       playableTopCard = false,
+      playableCardAction,
       showPlayableIndicator = true,
       showCount = true,
       onPress,
@@ -127,6 +129,7 @@ const CardStack = forwardRef<CardStackHandle, Props>(
                 backStyle={c.backStyle ?? defaultBackStyle}
                 testID={cardTestID}
                 showPlayable={shouldHighlight}
+                playableAction={playableCardAction}
               />
             );
 
