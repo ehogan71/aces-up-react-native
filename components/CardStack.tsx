@@ -135,7 +135,7 @@ const CardStack = forwardRef<CardStackHandle, Props>(
 
             return (
               <View
-                key={`${c.suit}-${c.rank}-${idx}`}
+                key={`${c.suit}-${c.rank}`}
                 style={[
                   styles.featherItem,
                   {

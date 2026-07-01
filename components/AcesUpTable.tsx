@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
   ImageBackground,
+  LayoutChangeEvent,
   Modal,
   Pressable,
   StyleSheet,
@@ -26,6 +29,16 @@ import {
   type AppSettings,
 } from '../utils/appSettings';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Card from './Card';
+import {
+  DEAL_ANIMATION_DURATION_MS,
+  DEAL_START_OPACITY,
+  DEAL_START_SCALE,
+  DEAL_STAGGER_MS,
+  DEFAULT_ENABLE_CARD_ANIMATIONS,
+  MOVE_ANIMATION_DURATION_MS,
+  TOP_STACK_FEATHER_OFFSET,
+} from '../utils/cardAnimations';
 
 // Main table container for gameplay state, persistence wiring, and overlays.
 type Suit = 'C' | 'D' | 'H' | 'S';
@@ -42,6 +55,29 @@ type AcesUpTableProps = {
   initialTopStacks?: StackCard[][];
   initialDeckStack?: StackCard[];
   initialDiscardStack?: StackCard[];
+  enableCardAnimations?: boolean;
+};
+
+type Rect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type FlightCard = {
+  id: string;
+  card: StackCard;
+  x: Animated.Value;
+  y: Animated.Value;
+  scale: Animated.Value;
+  opacity: Animated.Value;
+  width: number;
+  height: number;
+  targetX: number;
+  targetY: number;
+  durationMs: number;
+  delayMs: number;
 };
 
 const APP_VERSION = (require('../app.json') as { version?: string }).version;
@@ -55,6 +91,7 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   initialTopStacks,
   initialDeckStack,
   initialDiscardStack,
+  enableCardAnimations,
 }) => {
   const insets = useSafeAreaInsets();
 
@@ -106,8 +143,29 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   const [settingsStats, setSettingsStats] = useState<GameStats | null>(null);
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [hasLoadedAppSettings, setHasLoadedAppSettings] = useState(false);
+  const [flightCards, setFlightCards] = useState<FlightCard[]>([]);
+  const [isAnimationActive, setIsAnimationActive] = useState(false);
   const hasRecordedGameEndRef = useRef(false);
   const isMountedRef = useRef(true);
+  const topRowRectRef = useRef<Rect | null>(null);
+  const bottomRowRectRef = useRef<Rect | null>(null);
+  const topStackLocalRectsRef = useRef<Array<Rect | null>>([
+    null,
+    null,
+    null,
+    null,
+  ]);
+  const deckLocalRectRef = useRef<Rect | null>(null);
+  const discardLocalRectRef = useRef<Rect | null>(null);
+  const animationBatchIdRef = useRef(0);
+  const runningAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const testAnimationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const shouldAnimateCards =
+    enableCardAnimations ?? DEFAULT_ENABLE_CARD_ANIMATIONS;
+  const useNativeAnimationDriver = enableCardAnimations === undefined;
 
   const cloneStack = (stack: StackCard[]) => stack.map(card => ({ ...card }));
   const cloneStacks = (stacks: StackCard[][]) => stacks.map(cloneStack);
@@ -174,6 +232,231 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
     topCards.every(card => card.rank === 1) &&
     new Set(topCards.map(card => card.suit)).size === 4;
 
+  const toRect = (event: LayoutChangeEvent): Rect => ({
+    x: event.nativeEvent.layout.x,
+    y: event.nativeEvent.layout.y,
+    width: event.nativeEvent.layout.width,
+    height: event.nativeEvent.layout.height,
+  });
+
+  const getTopStackRect = (stackIndex: number): Rect | null => {
+    const row = topRowRectRef.current;
+    const local = topStackLocalRectsRef.current[stackIndex];
+    if (!row || !local) {
+      return null;
+    }
+
+    return {
+      x: row.x + local.x,
+      y: row.y + local.y,
+      width: local.width,
+      height: local.height,
+    };
+  };
+
+  const getDeckRect = (): Rect | null => {
+    const row = bottomRowRectRef.current;
+    const local = deckLocalRectRef.current;
+    if (!row || !local) {
+      return null;
+    }
+
+    return {
+      x: row.x + local.x,
+      y: row.y + local.y,
+      width: local.width,
+      height: local.height,
+    };
+  };
+
+  const getDiscardRect = (): Rect | null => {
+    const row = bottomRowRectRef.current;
+    const local = discardLocalRectRef.current;
+    if (!row || !local) {
+      return null;
+    }
+
+    return {
+      x: row.x + local.x,
+      y: row.y + local.y,
+      width: local.width,
+      height: local.height,
+    };
+  };
+
+  const cancelAnimationBatch = () => {
+    animationBatchIdRef.current += 1;
+    runningAnimationRef.current?.stop();
+    runningAnimationRef.current = null;
+    if (testAnimationTimeoutRef.current) {
+      clearTimeout(testAnimationTimeoutRef.current);
+      testAnimationTimeoutRef.current = null;
+    }
+    setFlightCards([]);
+    setIsAnimationActive(false);
+  };
+
+  const runFlightAnimation = (
+    items: Array<{
+      card: StackCard;
+      from: Rect;
+      to: Rect;
+      durationMs: number;
+      delayMs: number;
+    }>,
+    onComplete: () => void,
+  ) => {
+    if (!items.length) {
+      onComplete();
+      return;
+    }
+
+    const batchId = animationBatchIdRef.current + 1;
+    animationBatchIdRef.current = batchId;
+
+    const cards: FlightCard[] = items.map((item, index) => ({
+      id: `${batchId}-${item.card.suit}-${item.card.rank}-${index}`,
+      card: item.card,
+      x: new Animated.Value(item.from.x),
+      y: new Animated.Value(item.from.y),
+      scale: new Animated.Value(DEAL_START_SCALE),
+      opacity: new Animated.Value(DEAL_START_OPACITY),
+      width: item.from.width,
+      height: item.from.height,
+      targetX: item.to.x,
+      targetY: item.to.y,
+      durationMs: item.durationMs,
+      delayMs: item.delayMs,
+    }));
+
+    setFlightCards(cards);
+    setIsAnimationActive(true);
+
+    const finishAnimationBatch = (batchIdForFinish: number) => {
+      onComplete();
+
+      if (!useNativeAnimationDriver) {
+        if (
+          !isMountedRef.current ||
+          animationBatchIdRef.current !== batchIdForFinish
+        ) {
+          return;
+        }
+        setFlightCards([]);
+        setIsAnimationActive(false);
+        return;
+      }
+
+      // Fade the overlay out after commit so the final handoff is not a hard visual cut.
+      requestAnimationFrame(() => {
+        if (
+          !isMountedRef.current ||
+          animationBatchIdRef.current !== batchIdForFinish
+        ) {
+          return;
+        }
+
+        const handoffFade = Animated.parallel(
+          cards.map(card =>
+            Animated.timing(card.opacity, {
+              toValue: 0,
+              duration: 80,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ),
+        );
+
+        runningAnimationRef.current = handoffFade;
+        handoffFade.start(({ finished }) => {
+          runningAnimationRef.current = null;
+          if (!finished) {
+            return;
+          }
+
+          if (
+            !isMountedRef.current ||
+            animationBatchIdRef.current !== batchIdForFinish
+          ) {
+            return;
+          }
+
+          setFlightCards([]);
+          setIsAnimationActive(false);
+        });
+      });
+    };
+
+    if (!useNativeAnimationDriver) {
+      const totalDuration = cards.reduce(
+        (max, card) => Math.max(max, card.delayMs + card.durationMs),
+        0,
+      );
+
+      const batchIdForTimeout = batchId;
+      testAnimationTimeoutRef.current = setTimeout(() => {
+        testAnimationTimeoutRef.current = null;
+        if (
+          !isMountedRef.current ||
+          animationBatchIdRef.current !== batchIdForTimeout
+        ) {
+          return;
+        }
+
+        finishAnimationBatch(batchIdForTimeout);
+      }, totalDuration);
+      return;
+    }
+
+    const composite = Animated.parallel(
+      cards.map(card =>
+        Animated.sequence([
+          Animated.delay(card.delayMs),
+          Animated.parallel([
+            Animated.timing(card.x, {
+              toValue: card.targetX,
+              duration: card.durationMs,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: useNativeAnimationDriver,
+            }),
+            Animated.timing(card.y, {
+              toValue: card.targetY,
+              duration: card.durationMs,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: useNativeAnimationDriver,
+            }),
+            Animated.timing(card.scale, {
+              toValue: 1,
+              duration: card.durationMs,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: useNativeAnimationDriver,
+            }),
+            Animated.timing(card.opacity, {
+              toValue: 1,
+              duration: card.durationMs,
+              easing: Easing.linear,
+              useNativeDriver: useNativeAnimationDriver,
+            }),
+          ]),
+        ]),
+      ),
+    );
+
+    runningAnimationRef.current = composite;
+    composite.start(({ finished }) => {
+      runningAnimationRef.current = null;
+      if (!finished) {
+        return;
+      }
+
+      if (!isMountedRef.current || animationBatchIdRef.current !== batchId) {
+        return;
+      }
+
+      finishAnimationBatch(batchId);
+    });
+  };
+
   useEffect(() => {
     (async () => {
       const stats = await incrementGamesStarted();
@@ -186,6 +469,7 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
 
   useEffect(() => {
     return () => {
+      cancelAnimationBatch();
       isMountedRef.current = false;
     };
   }, []);
@@ -220,6 +504,10 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   }, [appSettings, hasLoadedAppSettings]);
 
   useEffect(() => {
+    if (isAnimationActive) {
+      return;
+    }
+
     if (!isGameEnded) {
       if (gameOverDismissed) setGameOverDismissed(false);
       return;
@@ -246,7 +534,13 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
     if (!gameOverResult && !gameOverDismissed) {
       setGameOverResult(isWinningEndState ? 'win' : 'lose');
     }
-  }, [isGameEnded, isWinningEndState, gameOverDismissed, gameOverResult]);
+  }, [
+    isAnimationActive,
+    isGameEnded,
+    isWinningEndState,
+    gameOverDismissed,
+    gameOverResult,
+  ]);
 
   useEffect(() => {
     if (!gameOverResult) {
@@ -257,25 +551,69 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   }, [gameOverResult, settingsStats]);
 
   const startDeal = () => {
-    if (deckStack.length < 4) return;
+    if (deckStack.length < 4 || isAnimationActive) return;
 
     setUndoStack(prev => [...prev, captureSnapshot()]);
 
     const cardsToDeal = deckStack
       .slice(0, 4)
       .map(c => ({ ...c, faceUp: true }));
+
+    const sourceRect = getDeckRect();
+    const targetRects = Array.from({ length: 4 }).map((_, stackIndex) => {
+      const stackRect = getTopStackRect(stackIndex);
+      if (!stackRect) {
+        return null;
+      }
+
+      return {
+        ...stackRect,
+        y:
+          stackRect.y + topStacks[stackIndex].length * TOP_STACK_FEATHER_OFFSET,
+      };
+    });
+
+    const canAnimateDeal =
+      shouldAnimateCards && sourceRect && targetRects.every(Boolean);
+
     setDeckStack(prev => prev.slice(4));
 
-    setTopStacks(prev => {
-      const next = [...prev];
-      for (let i = 0; i < 4; i++) {
-        next[i] = [cardsToDeal[i], ...next[i]];
-      }
-      return next;
-    });
+    if (!canAnimateDeal) {
+      setTopStacks(prev => {
+        const next = [...prev];
+        for (let i = 0; i < 4; i++) {
+          next[i] = [cardsToDeal[i], ...next[i]];
+        }
+        return next;
+      });
+      return;
+    }
+
+    runFlightAnimation(
+      cardsToDeal.map((card, index) => ({
+        card,
+        from: sourceRect,
+        to: targetRects[index] as Rect,
+        durationMs: DEAL_ANIMATION_DURATION_MS,
+        delayMs: index * DEAL_STAGGER_MS,
+      })),
+      () => {
+        setTopStacks(prev => {
+          const next = [...prev];
+          for (let i = 0; i < 4; i++) {
+            next[i] = [cardsToDeal[i], ...next[i]];
+          }
+          return next;
+        });
+      },
+    );
   };
 
   const handleTopCardPress = (stackIndex: number) => {
+    if (isAnimationActive) {
+      return;
+    }
+
     const action = getTopCardPlayableAction(stackIndex);
     if (!action) return;
 
@@ -283,6 +621,36 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
     if (!sourceStack.length) return;
 
     const playedCard = sourceStack[0];
+    const sourceRect = getTopStackRect(stackIndex);
+    const sourceTopCardRect = sourceRect
+      ? {
+          ...sourceRect,
+          y: sourceRect.y + (sourceStack.length - 1) * TOP_STACK_FEATHER_OFFSET,
+        }
+      : null;
+
+    let relocateTargetIndex = -1;
+    let targetRect: Rect | null = null;
+    if (action === 'relocate') {
+      relocateTargetIndex = topStacks.findIndex(
+        (stack, index) => index !== stackIndex && stack.length === 0,
+      );
+      if (relocateTargetIndex !== -1) {
+        const relocateTargetRect = getTopStackRect(relocateTargetIndex);
+        if (relocateTargetRect) {
+          targetRect = {
+            ...relocateTargetRect,
+            y:
+              relocateTargetRect.y +
+              topStacks[relocateTargetIndex].length * TOP_STACK_FEATHER_OFFSET,
+          };
+        }
+      }
+    }
+
+    if (action === 'discard') {
+      targetRect = getDiscardRect();
+    }
 
     setUndoStack(prev => [...prev, captureSnapshot()]);
 
@@ -290,24 +658,70 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
       const nextStacks = [...prev];
       nextStacks[stackIndex] = nextStacks[stackIndex].slice(1);
 
-      if (action === 'relocate') {
-        const targetIndex = nextStacks.findIndex(
-          (stack, index) => index !== stackIndex && stack.length === 0,
-        );
-        if (targetIndex !== -1) {
-          nextStacks[targetIndex] = [playedCard, ...nextStacks[targetIndex]];
-        }
-      }
-
       return nextStacks;
     });
 
-    if (action === 'discard') {
-      setDiscardStack(prev => [{ ...playedCard, faceUp: false }, ...prev]);
+    const canAnimateMove =
+      shouldAnimateCards && sourceTopCardRect && targetRect !== null;
+
+    if (!canAnimateMove) {
+      if (action === 'relocate' && relocateTargetIndex !== -1) {
+        setTopStacks(prev => {
+          const nextStacks = [...prev];
+          nextStacks[relocateTargetIndex] = [
+            playedCard,
+            ...nextStacks[relocateTargetIndex],
+          ];
+          return nextStacks;
+        });
+      }
+
+      if (action === 'discard') {
+        setDiscardStack(prev => [{ ...playedCard, faceUp: false }, ...prev]);
+      }
+      return;
     }
+
+    const moveTargetRect = targetRect;
+    if (!moveTargetRect) {
+      return;
+    }
+
+    runFlightAnimation(
+      [
+        {
+          card: { ...playedCard, faceUp: true },
+          from: sourceTopCardRect,
+          to: moveTargetRect,
+          durationMs: MOVE_ANIMATION_DURATION_MS,
+          delayMs: 0,
+        },
+      ],
+      () => {
+        if (action === 'relocate' && relocateTargetIndex !== -1) {
+          setTopStacks(prev => {
+            const nextStacks = [...prev];
+            nextStacks[relocateTargetIndex] = [
+              playedCard,
+              ...nextStacks[relocateTargetIndex],
+            ];
+            return nextStacks;
+          });
+          return;
+        }
+
+        if (action === 'discard') {
+          setDiscardStack(prev => [{ ...playedCard, faceUp: false }, ...prev]);
+        }
+      },
+    );
   };
 
   const handleUndo = () => {
+    if (isAnimationActive) {
+      return;
+    }
+
     setUndoStack(prev => {
       if (!prev.length) return prev;
 
@@ -326,6 +740,7 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   };
 
   const handleDealAgain = () => {
+    cancelAnimationBatch();
     hasRecordedGameEndRef.current = false;
     setTopStacks([[], [], [], []]);
     setDiscardStack([]);
@@ -353,6 +768,7 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
 
   const handleClearStatistics = async () => {
     setIsSettingsVisible(false);
+    cancelAnimationBatch();
 
     // Clearing stats should also restart the board and begin a fresh tracked game.
     await resetGameStats();
@@ -398,6 +814,10 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
   };
 
   const handlePrimaryButtonPress = () => {
+    if (isAnimationActive) {
+      return;
+    }
+
     if (isReadyToDealAgain) {
       handleDealAgain();
       return;
@@ -406,8 +826,10 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
     startDeal();
   };
 
-  const isDealButtonDisabled = !isReadyToDealAgain && deckStack.length < 4;
-  const isUndoButtonDisabled = undoStack.length === 0 || isReadyToDealAgain;
+  const isDealButtonDisabled =
+    isAnimationActive || (!isReadyToDealAgain && deckStack.length < 4);
+  const isUndoButtonDisabled =
+    isAnimationActive || undoStack.length === 0 || isReadyToDealAgain;
 
   return (
     <ImageBackground
@@ -431,19 +853,30 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
             <Ionicons name="settings-outline" style={styles.settingsIcon} />
           </Pressable>
         </View>
-        <View testID="toprow" style={styles.topRow}>
+        <View
+          testID="toprow"
+          style={styles.topRow}
+          onLayout={event => {
+            topRowRectRef.current = toRect(event);
+          }}
+        >
           {Array.from({ length: 4 }).map((_, i) => (
             <CardStack
               key={i}
               testID={`top-stack-${i}`}
               index={i}
+              onLayout={event => {
+                topStackLocalRectsRef.current[i] = toRect(event);
+              }}
               feathered
               showCount={false}
               playableTopCard={isTopCardPlayable(i)}
               playableCardAction={getTopCardPlayableAction(i) ?? undefined}
               showPlayableIndicator={appSettings.showPlayableIndicators}
               onPress={
-                isTopCardPlayable(i) ? () => handleTopCardPress(i) : undefined
+                !isAnimationActive && isTopCardPlayable(i)
+                  ? () => handleTopCardPress(i)
+                  : undefined
               }
               stack={topStacks[i]}
             />
@@ -452,13 +885,19 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
         <View
           testID="bottomrow"
           style={[styles.bottomRow, { marginBottom: bottomOffset }]}
+          onLayout={event => {
+            bottomRowRectRef.current = toRect(event);
+          }}
         >
           <CardStack
             testID="deck-stack"
             index={0}
+            onLayout={event => {
+              deckLocalRectRef.current = toRect(event);
+            }}
             containerStyle={styles.bottomStack}
             stack={deckStack}
-            onStackPress={startDeal}
+            onStackPress={isAnimationActive ? undefined : startDeal}
             showCount={appSettings.showStackCounts}
             defaultBackStyle={appSettings.cardBackStyle}
           />
@@ -498,11 +937,44 @@ const AcesUpTable: React.FC<AcesUpTableProps> = ({
           <CardStack
             testID="discard-stack"
             index={1}
+            onLayout={event => {
+              discardLocalRectRef.current = toRect(event);
+            }}
             containerStyle={styles.bottomStack}
             stack={discardStack}
             showCount={appSettings.showStackCounts}
             defaultBackStyle={appSettings.cardBackStyle}
           />
+        </View>
+        <View pointerEvents="none" style={styles.animationLayer}>
+          {flightCards.map(flightCard => (
+            <Animated.View
+              key={flightCard.id}
+              testID="animated-flight-card"
+              style={[
+                styles.animatedCard,
+                {
+                  width: flightCard.width,
+                  height: flightCard.height,
+                  opacity: flightCard.opacity,
+                  transform: [
+                    { translateX: flightCard.x },
+                    { translateY: flightCard.y },
+                    { scale: flightCard.scale },
+                  ],
+                },
+              ]}
+            >
+              <Card
+                suit={flightCard.card.suit}
+                rank={flightCard.card.rank}
+                faceUp={flightCard.card.faceUp ?? true}
+                backStyle={
+                  flightCard.card.backStyle ?? appSettings.cardBackStyle
+                }
+              />
+            </Animated.View>
+          ))}
         </View>
         <SettingsModal
           visible={isSettingsVisible}
@@ -704,11 +1176,19 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.9)',
     lineHeight: 30,
   },
+  animationLayer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1500,
+  },
   animatedCard: {
     position: 'absolute',
-    width: 60,
-    height: 84,
-    zIndex: 1000,
+    left: 0,
+    top: 0,
+    zIndex: 1501,
   },
   bottomCard: {
     width: '18%',
